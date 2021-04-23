@@ -106,7 +106,8 @@ public class Client extends Application implements EventHandler<ActionEvent> {
          // case "Change Folder":
             // break;
          case "Upload":
-            // call doUpload()
+         //call doUpload()
+            doUpload();
             break;
          case "Download":
             // call doDownload()
@@ -119,8 +120,16 @@ public class Client extends Application implements EventHandler<ActionEvent> {
    */
    public void doUpload() {
       // prompt user for remote file name
+      
       // filechooser to select local file
-      // send WRQ to server to port 69
+       File Chooser chooser = new FileChooser();
+       chooser.setIntialDirectory(new File(tfFolder.getText()));
+       chooser.setTitle("Select Local files to Uploads");
+       File localFile = chooser.showDialog((Window) stage); 
+       if (localFile == null)
+       return;
+       // send WRQ to server to port 69
+      
       // Recieve ack packet from server
       // open file to send 
       // loop to send data packets (i increases each time)
