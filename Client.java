@@ -102,14 +102,51 @@ public class Client extends Application implements EventHandler<ActionEvent> {
       
       // Determining which button was clicked
       switch(btn.getText()) {
-         case "Change Folder":
-            break;
+         // Not required so ignore it for now
+         // case "Change Folder":
+            // break;
          case "Upload":
+            // call doUpload()
             break;
          case "Download":
+            // call doDownload()
             break;
       }
    }   
+   
+   /**
+   *  doUpload - uploading a file to the server
+   */
+   public void doUpload() {
+      // prompt user for remote file name
+      // filechooser to select local file
+      // send WRQ to server to port 69
+      // Recieve ack packet from server
+      // open file to send 
+      // loop to send data packets (i increases each time)
+         // read max amount of bytes (see documentation)
+         // make a DATA packet with block # i
+         // send data packet
+         // wait for ack packet with corresponding block #
+      // done, close file and socket
+   }
+   
+   /**
+   *  doDownload - downloading a file to the server
+   */
+   public void doDownload() {
+      // prompt user for remote file name
+      // filechooser to select local save file
+      // send RRQ to server to port 69
+      // Recieve ack packet from server
+      // open file to recieve
+      // loop to accept data packets
+         // dissect data packet
+         // save data into file
+         // send ack packet with corresponding block #
+         // if packet is < 512 bytes, we are done looping
+      // done, close file and socket
+   }
    
    /**
    *  log - adding to the log text area
