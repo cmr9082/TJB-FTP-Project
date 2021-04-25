@@ -7,6 +7,7 @@ import javafx.stage.*;
 import javafx.geometry.*;
 import java.io.*;
 import java.net.*;
+import java.util.*;
 import javafx.scene.text.*;
 import javafx.application.Platform;
 
@@ -91,6 +92,13 @@ public class Server extends Application implements EventHandler<ActionEvent>, TF
       scene = new Scene(root, 300, 400);
       stage.setScene(scene);
       stage.show();
+      
+      // Shutting down server when the red x is clicked
+      stage.setOnCloseRequest(new EventHandler<WindowEvent>() {
+         public void handle(WindowEvent evt) {
+            stopListen();
+         }
+      });
    }
    
    /**
@@ -256,7 +264,7 @@ public class Server extends Application implements EventHandler<ActionEvent>, TF
          }
          
          // connection information
-         port = cSocket.getPort();
+         port = firstPkt.getPort();
          toAddress = firstPkt.getAddress();
       }
       
@@ -267,12 +275,25 @@ public class Server extends Application implements EventHandler<ActionEvent>, TF
          // Determining what the first packet requests
          try {
             // Dissect the packet to find the opcode
+            RRQPacket rrqPkt = new RRQPacket();
+            rrqPkt.dissect(firstPkt);
+            // If the opcode is RRQ, call doRRQ()
+            if (rrqPkt.getOpcode() == RRQ) {
+               doRRQ();
+            }
             // If the opcode is WRQ, call doWRQ()
-            // If the opcode is WRQ, call doRRQ()
+            else if (rrqPkt.getOpcode() == WRQ) {
+               doWRQ();
+            }
+            else {
+               ERRORPacket errPkt = new ERRORPacket(toAddress, port, ILLOP, "Illegal Opcode -- RRQ or WRQ expected --" + rrqPkt.getOpcode() + " received.");
+               log("Server sending -- Opcode 5 (ERROR) Ecode 4 (ILLOP) <" + errPkt.getErrorMsg() + ">");
+               cSocket.send(errPkt.build());
+            }
          }
          catch (IOException ioe) {
-            log("IOException (3): " + ioe);
             ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
             DatagramPacket errorpkt = error.build();
             try { 
                cSocket.send(errorpkt); 
@@ -287,29 +308,323 @@ public class Server extends Application implements EventHandler<ActionEvent>, TF
       *  doWRQ - handling an upload request
       */
       public void doWRQ() {
+         // dissect the packet into a WRQ
+         WRQPacket wrqPkt = new WRQPacket();
+         wrqPkt.dissect(firstPkt);
+         
          // log the request info
+         log("Server recieved -- " + " WRQ <" + wrqPkt.getfilename() + "> mode <" + wrqPkt.getmode() + ">");
+         
          // awknowledge the request packet
+         try {
+            ACKPacket ackWRQ = new ACKPacket(toAddress, port, 0);
+            log("Server sending -- Opcode 4 (ACK) Blk# (0)");
+            cSocket.send(ackWRQ.build());
+         }
+         catch (IOException ioe) {
+            ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+            DatagramPacket errorPkt = error.build();
+            try { 
+               cSocket.send(errorPkt); 
+            } 
+            catch (Exception ex) {
+               log("ERROR: Can't send error to client."); 
+            }
+            return;
+         }
+         
          // open file for writing to
+         log("doWRQ -- Opening " + currentDir + "/" + wrqPkt.getfilename());
+         DataOutputStream out = null;
+         try {
+            File outFile = new File(currentDir + "/" + wrqPkt.getfilename());
+            out = new DataOutputStream(new FileOutputStream(outFile));
+         }
+         catch (FileNotFoundException fnfe) {
+            ERRORPacket error = new ERRORPacket(toAddress, port, ACCESS, fnfe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 2 (ACCESS) <" + error.getErrorMsg() + ">");
+            DatagramPacket errorpkt = error.build();
+            try { 
+               cSocket.send(errorpkt); 
+            } 
+            catch (Exception ex) {
+               log("ERROR: Can't send error to client."); 
+            }
+            return;
+         }
+         
          // loop to recieve data packets (until one is < 512 bytes)
+         boolean keepGoing = true;
+         while (keepGoing) {
             // recieve data packet
+            byte[] holder = new byte[MAX_PACKET];
+            DatagramPacket pkt = new DatagramPacket(holder, MAX_PACKET);
+            try {
+               cSocket.receive(pkt);
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            DATAPacket dataPkt = new DATAPacket();
+            dataPkt.dissect(pkt);
+            
+            // Check that dataPkt is not an error
+            if (dataPkt.getOpcode() == ERROR) {
+               // Log Error
+               keepGoing = false;
+               ERRORPacket error = new ERRORPacket();
+               error.dissect(pkt);
+               log("Server recieved -- Opcode 5 (ERROR) Ecode " + error.getErrorNo() + " <" + error.getErrorMsg() + ">");
+               return;
+            }
+            // Check that dataPkt is a data packet
+            else if (dataPkt.getOpcode() != DATA) {
+               // Send error
+               keepGoing = false;
+               ERRORPacket error = new ERRORPacket(toAddress, port, ILLOP, "Illegal Opcode -- DATA expected --" + dataPkt.getOpcode() + " received.");
+               log("Server sending -- Opcode 5 (ERROR) Ecode 4 (ILLOP) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            
+            // log data packet
+            log("Server recieved -- Opcode 3 (DATA) Blk# (" + dataPkt.getBlockNo() + ") " + Arrays.toString(dataPkt.getData()));
+            
             // write data to file
+            try { 
+               out.write(dataPkt.getData(), 0, dataPkt.getLength());
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            
             // awknowledge with corresponding block number
+            try {
+               ACKPacket ackData = new ACKPacket(toAddress, port, dataPkt.getBlockNo());
+               log("Server sending -- Opcode 4 (ACK) Blk# (" + ackData.getBlockNo() + ")");
+               cSocket.send(ackData.build());
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorPkt = error.build();
+               try { 
+                  cSocket.send(errorPkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            
+            // See if this was the last packet
+            if (dataPkt.getLength() < 512) {
+               keepGoing = false;
+            }
+         }
+         
          // log that the file has been uploaded
+         log("doWRQ -- File " + wrqPkt.getfilename() + " uploaded.");
+         
          // close socket and file output
+         try {
+            out.close();
+         }
+         catch (IOException ioe) {
+            ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+            DatagramPacket errorPkt = error.build();
+            try { 
+               cSocket.send(errorPkt); 
+            } 
+            catch (Exception ex) {
+               log("ERROR: Can't send error to client."); 
+            }
+            return;
+         }
+         cSocket.close();
       }
       
       /**
       *  doRRQ - handling a download request
       */
       public void doRRQ() {
+         // Dissect the packet
+         RRQPacket rrqPkt = new RRQPacket();
+         rrqPkt.dissect(firstPkt);
+         
          // log the request info
-         // open the file for reading form
+         log("Server recieved -- " + " RRQ <" + rrqPkt.getfilename() + "> mode <" + rrqPkt.getmode() + ">");
+         
+         // open the file for reading from
+         log("doRRQ -- Opening " + currentDir + "/" + rrqPkt.getfilename());
+         DataInputStream in = null;
+         try {
+            File inFile = new File(currentDir + "/" + rrqPkt.getfilename());
+            in = new DataInputStream(new FileInputStream(inFile));
+         }
+         catch (FileNotFoundException fnfe) {
+            ERRORPacket error = new ERRORPacket(toAddress, port, NOTFD, fnfe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 1 (NOTFD) <" + error.getErrorMsg() + ">");
+            DatagramPacket errorpkt = error.build();
+            try { 
+               cSocket.send(errorpkt); 
+            } 
+            catch (Exception ex) {
+               log("ERROR: Can't send error to client."); 
+            }
+            return;
+         }
+         
          // loop to send data packets (until eof)
+         boolean keepGoing = true;
+         int blockNo = 1;
+         while (keepGoing) {
             // read from file the max length of bytes
-            // build data packet of max length
-            // wait for awknowledgement of corresponding block no
+            byte[] data = new byte[512];
+            int numRead = 0;
+            try {
+               numRead = in.read(data);
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            
+            // Determining if this will be the last data packet
+            if (numRead < 512) {
+               keepGoing = false;
+            }
+            // Handling an end of file -1 return 
+            if (numRead == -1) {
+               numRead = 0;
+            }
+            
+            // build and send data packet
+            try {
+               DATAPacket dataPkt = new DATAPacket(toAddress, port, blockNo, data, numRead);
+               log("Server sending -- Opcode 3 (DATA) Blk# (" + dataPkt.getBlockNo() + ") " + Arrays.toString(dataPkt.getData()));
+               cSocket.send(dataPkt.build());
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorPkt = error.build();
+               try { 
+                  cSocket.send(errorPkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            
+            // wait for awknowledgement
+            byte[] holder = new byte[MAX_PACKET];
+            DatagramPacket pkt = new DatagramPacket(holder, MAX_PACKET);
+            try {
+               cSocket.receive(pkt);
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            ACKPacket ackPkt = new ACKPacket();
+            ackPkt.dissect(pkt);
+            
+            // Check that ackPkt is not an error
+            if (ackPkt.getOpcode() == ERROR) {
+               // Log Error
+               keepGoing = false;
+               ERRORPacket error = new ERRORPacket();
+               error.dissect(pkt);
+               log("Server recieved -- Opcode 5 (ERROR) Ecode " + error.getErrorNo() + " <" + error.getErrorMsg() + ">");
+               return;
+            }
+            // Check that ackPkt is an acknowledgement packet
+            else if (ackPkt.getOpcode() != ACK) {
+               // Send error
+               keepGoing = false;
+               ERRORPacket error = new ERRORPacket(toAddress, port, ILLOP, "Illegal Opcode -- ACK expected --" + ackPkt.getOpcode() + " received.");
+               log("Server sending -- Opcode 5 (ERROR) Ecode 4 (ILLOP) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            
+            // log data packet
+            log("Server recieved -- Opcode 4 (ACK) Blk# (" + ackPkt.getBlockNo() + ")");
+            
+            // Update block number
+            blockNo++;
+         }
+            
          // log that the file has been downloaded
+         log("doRRQ -- File " + rrqPkt.getfilename() + " downloaded.");
+         
          // close the socket and file input
+         try {
+            in.close();
+         }
+         catch (IOException ioe) {
+            ERRORPacket error = new ERRORPacket(toAddress, port, UNDEF, ioe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+            DatagramPacket errorPkt = error.build();
+            try { 
+               cSocket.send(errorPkt); 
+            } 
+            catch (Exception ex) {
+               log("ERROR: Can't send error to client."); 
+            }
+            return;
+         }
+         cSocket.close();
       }
    }
 }	

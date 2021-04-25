@@ -25,7 +25,7 @@ public class ERRORPacket implements TFTPConstants {
    *  @param _errorMsg - the message for the error
    */
    public ERRORPacket(InetAddress _toAddress, int _port, int _errorNo, String _errorMsg) {
-      opcode = ACK;
+      opcode = ERROR;
       toAddress = _toAddress;
       port = _port;
       errorNo = _errorNo;
