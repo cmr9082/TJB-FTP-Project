@@ -20,7 +20,7 @@ public interface TFTPConstants {
    
    // ECodes - codes for different errors
    public static final int UNDEF = 0;
-   public static final int NOTFND = 1;
+   public static final int NOTFD = 1;
    public static final int ACCESS = 2;
    public static final int DSKFUL = 3;
    public static final int ILLOP = 4;

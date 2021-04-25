@@ -23,7 +23,7 @@ public class RRQPacket implements TFTPConstants {
    *  @param _filename - file name of the packet 
    *  @param _mode - informmation about the data transfer
    */
-   private RRQPacket(InetAddress _toAddress, int _opcode,  String _filename, String _mode, int _port ) {
+   public RRQPacket(InetAddress _toAddress, int _opcode,  String _filename, String _mode, int _port ) {
       opcode = _opcode;
       toAddress = _toAddress;
       filename = _filename;
@@ -35,7 +35,7 @@ public class RRQPacket implements TFTPConstants {
    /**
    *  Default constructor 
    */
-   private RRQPacket() {
+   public RRQPacket() {
       // nothing needs to happen here; 
    }
    
@@ -46,7 +46,7 @@ public class RRQPacket implements TFTPConstants {
    *  format 2 bytes  - Opcode;  string Filename; 1 byte- 0 ; string  - mode; 1- byte 0;
    *  @return the datagram packet to send
    */
-   private DatagramPacket build() {
+   public DatagramPacket build() {
    
       Exception except = null;
       int len = 2 + filename.length() + mode.length() + 2;
@@ -152,7 +152,7 @@ public class RRQPacket implements TFTPConstants {
    *  getOpcode - returns opcode
    *  @return opcode
    */
-   private int getOpcode() {
+   public int getOpcode() {
       return opcode;
    }
    
@@ -160,7 +160,7 @@ public class RRQPacket implements TFTPConstants {
    *  getAddress - returns toAddress
    *  @return toAddress
    */
-   private InetAddress getAddress() {
+   public InetAddress getAddress() {
       return toAddress;
    }
    
@@ -168,14 +168,14 @@ public class RRQPacket implements TFTPConstants {
    *  getFilename - returns filename
    *  @return filename
    */
-   private String getfilename() {
+   public String getfilename() {
       return filename;
    }
  /**
    *  getmode - returns mode 
    *  @return port
    */
-   private String getmode() {
+   public String getmode() {
       return mode;
    }
 
@@ -183,7 +183,7 @@ public class RRQPacket implements TFTPConstants {
    *  getPort - returns port
    *  @return port
    */
-   private int getPort() {
+   public int getPort() {
       return port;
    }
    
