@@ -106,7 +106,8 @@ public class Client extends Application implements EventHandler<ActionEvent> {
          // case "Change Folder":
             // break;
          case "Upload":
-            // call doUpload()
+         //call doUpload()
+            doUpload();
             break;
          case "Download":
             // call doDownload()
@@ -119,8 +120,21 @@ public class Client extends Application implements EventHandler<ActionEvent> {
    */
    public void doUpload() {
       // prompt user for remote file name
+      TextInputDialog dialog = new TextInputDialog();
+      dialog.setTitle("Remote Name"); 
+      dialog.setHeaderText("Enter the name to the file on the server");
+      dialog.setX(150);
+      dialog.showAndWait();
       // filechooser to select local file
-      // send WRQ to server to port 69
+      FileChooser chooser = new FileChooser();
+      chooser.setInitialDirectory(new File(tfFolder.getText()));
+      chooser.setTitle("Select Local files to Uploads");
+      File localFile = chooser.showOpenDialog((Window)stage); 
+      if (localFile == null)
+         return;
+      System.out.println(localFile.getAbsolutePath());
+       // send WRQ to server to port 69
+      
       // Recieve ack packet from server
       // open file to send 
       // loop to send data packets (i increases each time)
@@ -136,7 +150,21 @@ public class Client extends Application implements EventHandler<ActionEvent> {
    */
    public void doDownload() {
       // prompt user for remote file name
+      TextInputDialog dialog = new TextInputDialog();
+      dialog.setTitle("Remote Name");
+      dialog.setHeaderText("Enter the name of the remote file to download.");
+      dialog.setX(75);
+      dialog.showAndWait();
+      String remoteName = dialog.getEditor().getText();
       // filechooser to select local save file
+      FileChooser chooser = new FileChooser();
+      chooser.setInitialDirectory(new File(this.tfFolder.getText()));
+      chooser.setTitle("Enter the Name of the File for Download");
+      File localFile = chooser.showSaveDialog((Window)this.stage);
+      if (localFile == null) {
+         log("Canceled!");
+         return;
+      } 
       // send RRQ to server to port 69
       // Recieve ack packet from server
       // open file to recieve
@@ -153,10 +181,11 @@ public class Client extends Application implements EventHandler<ActionEvent> {
    *  @param message - the message to log
    */
    public void log(String message) {
-      Platform.runLater(new Runnable() {
-         public void run() {
-           taLog.appendText(message + "\n");
-         }
-      });
+      Platform.runLater(
+         new Runnable() {
+            public void run() {
+               taLog.appendText(message + "\n");
+            }
+         });
    }
 }	
