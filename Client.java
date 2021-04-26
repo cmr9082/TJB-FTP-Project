@@ -129,7 +129,6 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
    
    /**
    *  doUpload - uploading a file to the server
-   wwq
    */
    public void doUpload() {
       // prompt user for remote file name
@@ -148,39 +147,173 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
       File localFile = chooser.showOpenDialog((Window)stage); 
       if (localFile == null)
          return;
+      String currentDir = localFile.getParent();
       System.out.println(localFile.getAbsolutePath());
       
-       // send WRQ to server to port 69
+      // send WRQ to server to port 69
+      DatagramSocket cSocket = null;
+      InetAddress iNet = null;
       try { 
-         DatagramSocket cSocket = new DatagramSocket();
-         InetAddress iNet = InetAddress.getByName(tfServer.getText());
-         WRQPacket wrqPacket = new WRQPacket(iNet, WRQ , remoteName, "octect", TFTP_PORT);
-         DatagramPacket cPacket = wrqPacket.build();
+         cSocket = new DatagramSocket();
+         iNet = InetAddress.getByName(tfServer.getText());
+         WRQPacket wrqPkt = new WRQPacket(iNet, WRQ , remoteName, "octect", TFTP_PORT);
+         DatagramPacket cPacket = wrqPkt.build();
          cSocket.send(cPacket);
       }
       catch (Exception ex) {
          log("ERROR: Can't send error to client."); 
       }
-      return;
        
-    // Recieve ack packet from server
-       
-      // open file to send 
-     // loop to send data packets (i increases each time)
+      // Recieve ack packet from server
       
-      // read max amount of bytes (see documentation)
-     // make a DATA packet with block # i
-                   
-      // send data packet
-                   
+        // open the file for reading from
+         log("doWRQ -- Opening " + currentDir + "/" + localFile.getName());
+         DataInputStream in = null;
+         try {
+            File inFile = new File(currentDir + "/" + localFile.getName());
+            in = new DataInputStream(new FileInputStream(inFile));
+         }
+         catch (FileNotFoundException fnfe) {
+            ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT, NOTFD, fnfe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 1 (NOTFD) <" + error.getErrorMsg() + ">");
+            DatagramPacket errorpkt = error.build();
+            try { 
+               cSocket.send(errorpkt); 
+            } 
+            catch (Exception ex) {
+               log("ERROR: Can't send error to client."); 
+            }
+            return;
+         }
+      
+      // loop to send data packets (until eof)
+         boolean keepGoing = true;
+         int blockNo = 1;
+         while (keepGoing) {
+            // read from file the max length of bytes
+            byte[] data = new byte[512];
+            int numRead = 0;
+            try {
+               numRead = in.read(data);
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }            
+            // Determining if this will be the last data packet
+            if (numRead < 512) {
+               keepGoing = false;
+            }
+            // Handling an end of file -1 return 
+            if (numRead == -1) {
+               numRead = 0;
+            }  
+                 
+     // build and send data packet
+            try {
+               DATAPacket dataPkt = new DATAPacket(iNet, TFTP_PORT, blockNo, data, numRead);
+               log("Server sending -- Opcode 3 (DATA) Blk# (" + dataPkt.getBlockNo() + ") " + Arrays.toString(dataPkt.getData()));
+               cSocket.send(dataPkt.build());
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(iNet,TFTP_PORT, UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorPkt = error.build();
+               try { 
+                  cSocket.send(errorPkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+      // wait for awknowledgement
+            byte[] holder = new byte[MAX_PACKET];
+            DatagramPacket pkt = new DatagramPacket(holder, MAX_PACKET);
+            try {
+               cSocket.receive(pkt);
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT , UNDEF, ioe.toString());
+               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            ACKPacket ackPkt = new ACKPacket();
+            ackPkt.dissect(pkt);
+            
+            // Check that ackPkt is not an error
+            if (ackPkt.getOpcode() == ERROR) {
+               // Log Error
+               keepGoing = false;
+               ERRORPacket error = new ERRORPacket();
+               error.dissect(pkt);
+               log("Server recieved -- Opcode 5 (ERROR) Ecode " + error.getErrorNo() + " <" + error.getErrorMsg() + ">");
+               return;
+            }
+            // Check that ackPkt is an acknowledgement packet
+            else if (ackPkt.getOpcode() != ACK) {
+               // Send error
+               keepGoing = false;
+               ERRORPacket error = new ERRORPacket(iNet, ackPkt.getPort(), ILLOP, "Illegal Opcode -- ACK expected --" + ackPkt.getOpcode() + " received.");
+               log("Server sending -- Opcode 5 (ERROR) Ecode 4 (ILLOP) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            
+            // log data packet
+            log("Server recieved -- Opcode 4 (ACK) Blk# (" + ackPkt.getBlockNo() + ")");
+            
+            // Update block number
+            blockNo++;
+         }
+            
+         // log that the file has been downloaded
+         log("Done Uploading");
+         try {
+            in.close();
+         }
+         catch (IOException ioe) {
+            ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT, UNDEF, ioe.toString());
+            log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+            DatagramPacket errorPkt = error.build();
+            try { 
+               cSocket.send(errorPkt); 
+            } 
+            catch (Exception ex) {
+               log("ERROR: Can't send error to client."); 
+            }
+            return;
+         }
+         cSocket.close();
+      }
+                 
+     
    
-     // wait for ack packet with corresponding block #   
-     // done, close file and socket
-   }
    
    /**
    *  doDownload - downloading a file to the server 
-   rrq
+  
    */
    public void doDownload() {
       // prompt user for remote file name
@@ -259,7 +392,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
             }
          // dissect data packet
            DATAPacket dataPkt = new DATAPacket();
-            dataPkt.dissect(pakt);  
+           dataPkt.dissect(pakt);  
                           
             
          // save data into file
