@@ -353,6 +353,7 @@ public class Server extends Application implements EventHandler<ActionEvent>, TF
             }
             return;
          }
+
          
          // loop to recieve data packets (until one is < 512 bytes)
          boolean keepGoing = true;
@@ -375,8 +376,8 @@ public class Server extends Application implements EventHandler<ActionEvent>, TF
                }
                return;
             }
-            DATAPacket dataPkt = new DATAPacket();
-            dataPkt.dissect(pkt);
+           DATAPacket dataPkt = new DATAPacket();
+            dataPkt.dissect(pkt);                                                                                                                                                                                                                                     
             
             // Check that dataPkt is not an error
             if (dataPkt.getOpcode() == ERROR) {
@@ -426,7 +427,7 @@ public class Server extends Application implements EventHandler<ActionEvent>, TF
             // awknowledge with corresponding block number
             try {
                ACKPacket ackData = new ACKPacket(toAddress, port, dataPkt.getBlockNo());
-               log("Server sending -- Opcode 4 (ACK) Blk# (" + ackData.getBlockNo() + ")");
+               log("Server sending -- Opcode 4 (ACK) rBlk# (" + ackData.getBlockNo() + ")");
                cSocket.send(ackData.build());
             }
             catch (IOException ioe) {
