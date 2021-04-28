@@ -138,8 +138,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
       dialog.setX(150);
       dialog.showAndWait();
       String remoteName = dialog.getEditor().getText();
-      System.out.println(remoteName);
-      
+            
       // filechooser to select local file
       FileChooser chooser = new FileChooser();
       chooser.setInitialDirectory(new File(tfFolder.getText()));
@@ -148,13 +147,15 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
       if (localFile == null)
          return;
       String currentDir = localFile.getParent();
-      System.out.println(localFile.getAbsolutePath());
-      
+       log("Starting Upload " + remoteName + "-->" + remoteName);
+       log("Client Sending... Opcode 2 (WRQ) Filename <" + remoteName +"> Mode <octect>");
+
       // send WRQ to server to port 69
       DatagramSocket cSocket = null;
       InetAddress iNet = null;
       try { 
          cSocket = new DatagramSocket();
+         cSocket.setSoTimeout(1000); 
          iNet = InetAddress.getByName(tfServer.getText());
          WRQPacket wrqPkt = new WRQPacket(iNet, WRQ , remoteName, "octect", TFTP_PORT);
          DatagramPacket cPacket = wrqPkt.build();
@@ -165,9 +166,61 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
       }
        
       // Recieve ack packet from server
+       byte[] hold = new byte[MAX_PACKET];
+            DatagramPacket pakt = new DatagramPacket(hold, MAX_PACKET);
+            try {
+               cSocket.receive(pakt);
+            }
+            catch(SocketTimeoutException ste){
+            log("Upload timed out waiting for ACK!");
+            return;
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT , UNDEF, ioe.toString());
+               log("Client sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+            ACKPacket ackPakt = new ACKPacket();
+            ackPakt.dissect(pakt);
+            
+            // Check that ackPkt is not an error
+            if (ackPakt.getOpcode() == ERROR) {
+               // Log Error
+              
+               ERRORPacket error = new ERRORPacket();
+               error.dissect(pakt);
+               log("Client recieved -- Opcode 5 (ERROR) Ecode " + error.getErrorNo() + " <" + error.getErrorMsg() + ">");
+               return;
+            }
+            // Check that ackPkt is an acknowledgement packet
+            else if (ackPakt.getOpcode() != ACK) {
+               // Send error
+               
+               ERRORPacket error = new ERRORPacket(iNet, ackPakt.getPort(), ILLOP, "Illegal Opcode -- ACK expected --" + ackPakt.getOpcode() + " received.");
+               log("Client sending -- Opcode 5 (ERROR) Ecode 4 (ILLOP) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to client."); 
+               }
+               return;
+            }
+   
+            // log data packet
+            log("Client recieved -- Opcode 4 (ACK) Blk# (" + ackPakt.getBlockNo() + ")");
+               
       
         // open the file for reading from
-         log("doWRQ -- Opening " + currentDir + "/" + localFile.getName());
+         log("Opening ---- " + currentDir + "/" + localFile.getName());
          DataInputStream in = null;
          try {
             File inFile = new File(currentDir + "/" + localFile.getName());
@@ -175,7 +228,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
          }
          catch (FileNotFoundException fnfe) {
             ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT, NOTFD, fnfe.toString());
-            log("Server sending -- Opcode 5 (ERROR) Ecode 1 (NOTFD) <" + error.getErrorMsg() + ">");
+            log("Client sending -- Opcode 5 (ERROR) Ecode 1 (NOTFD) <" + error.getErrorMsg() + ">");
             DatagramPacket errorpkt = error.build();
             try { 
                cSocket.send(errorpkt); 
@@ -198,7 +251,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
             }
             catch (IOException ioe) {
                ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT, UNDEF, ioe.toString());
-               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               log("Client sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
                DatagramPacket errorpkt = error.build();
                try { 
                   cSocket.send(errorpkt); 
@@ -207,7 +260,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
                   log("ERROR: Can't send error to client."); 
                }
                return;
-            }            
+            }   
             // Determining if this will be the last data packet
             if (numRead < 512) {
                keepGoing = false;
@@ -216,16 +269,18 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
             if (numRead == -1) {
                numRead = 0;
             }  
-                 
-     // build and send data packet
+         
+                             
+        // build and send data packet
             try {
-               DATAPacket dataPkt = new DATAPacket(iNet, TFTP_PORT, blockNo, data, numRead);
-               log("Server sending -- Opcode 3 (DATA) Blk# (" + dataPkt.getBlockNo() + ") " + Arrays.toString(dataPkt.getData()));
+               DATAPacket dataPkt = new DATAPacket(iNet, ackPakt.getPort(), blockNo, data, numRead);
+               log("Client sending -- Opcode 3 (DATA) Blk# (" + dataPkt.getBlockNo() + ") " + Arrays.toString(dataPkt.getData()));
                cSocket.send(dataPkt.build());
+               System.out.println(dataPkt.getOpcode());
             }
             catch (IOException ioe) {
-               ERRORPacket error = new ERRORPacket(iNet,TFTP_PORT, UNDEF, ioe.toString());
-               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               ERRORPacket error = new ERRORPacket(iNet,ackPakt.getPort(), UNDEF, ioe.toString());
+               log("Client sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
                DatagramPacket errorPkt = error.build();
                try { 
                   cSocket.send(errorPkt); 
@@ -241,9 +296,13 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
             try {
                cSocket.receive(pkt);
             }
+            catch(SocketTimeoutException ste){
+            log("Upload timed out waiting for ACK!");
+            return;
+            }
             catch (IOException ioe) {
-               ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT , UNDEF, ioe.toString());
-               log("Server sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               ERRORPacket error = new ERRORPacket(iNet, ackPakt.getPort() , UNDEF, ioe.toString());
+               log("Client sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
                DatagramPacket errorpkt = error.build();
                try { 
                   cSocket.send(errorpkt); 
@@ -262,7 +321,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
                keepGoing = false;
                ERRORPacket error = new ERRORPacket();
                error.dissect(pkt);
-               log("Server recieved -- Opcode 5 (ERROR) Ecode " + error.getErrorNo() + " <" + error.getErrorMsg() + ">");
+               log("Client recieved -- Opcode 5 (ERROR) Ecode " + error.getErrorNo() + " <" + error.getErrorMsg() + ">");
                return;
             }
             // Check that ackPkt is an acknowledgement packet
@@ -270,7 +329,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
                // Send error
                keepGoing = false;
                ERRORPacket error = new ERRORPacket(iNet, ackPkt.getPort(), ILLOP, "Illegal Opcode -- ACK expected --" + ackPkt.getOpcode() + " received.");
-               log("Server sending -- Opcode 5 (ERROR) Ecode 4 (ILLOP) <" + error.getErrorMsg() + ">");
+               log("Client sending -- Opcode 5 (ERROR) Ecode 4 (ILLOP) <" + error.getErrorMsg() + ">");
                DatagramPacket errorpkt = error.build();
                try { 
                   cSocket.send(errorpkt); 
@@ -282,14 +341,14 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
             }
             
             // log data packet
-            log("Server recieved -- Opcode 4 (ACK) Blk# (" + ackPkt.getBlockNo() + ")");
+            log("Client recieved -- Opcode 4 (ACK) Blk# (" + ackPkt.getBlockNo() + ")");
             
             // Update block number
             blockNo++;
          }
             
-         // log that the file has been downloaded
-         log("Done Uploading");
+         // log that the file has been uploaded
+         log("Uploaded" + remoteName + "-->" + remoteName);
          try {
             in.close();
          }
@@ -338,6 +397,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
       InetAddress iNet = null;
       try { 
          cSocket = new DatagramSocket();
+         cSocket.setSoTimeout(1000); 
          iNet = InetAddress.getByName(tfServer.getText());
          RRQPacket rrqPacket = new RRQPacket(iNet, RRQ , remoteName, "octect", TFTP_PORT);
          DatagramPacket cPacket = rrqPacket.build();
@@ -351,7 +411,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
                   
       
     // open file to recieve
-         log("doWRQ -- Opening " + currentDir + "/" + localFile.getName());
+         log("Opening-- " + currentDir + "/" + localFile.getName());
          DataOutputStream out = null;
          try {
             File outFile = new File(currentDir + "/" + localFile.getName());
@@ -377,6 +437,10 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
             DatagramPacket pakt = new DatagramPacket(hold, MAX_PACKET);
             try {
                cSocket.receive(pakt);
+            }
+            catch(SocketTimeoutException ste){
+            log("Upload timed out waiting for ACK!");
+            return;
             }
             catch (IOException ioe) {
                ERRORPacket error = new ERRORPacket(iNet, TFTP_PORT, UNDEF, ioe.toString());
@@ -446,7 +510,7 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
           keepgoing = false; 
              }  
              }   
-             log(" Done Downloading " );  
+             log("Downloaded" + remoteName + "-->" + remoteName);
       // done, close file and socket
       try {
             out.close();
