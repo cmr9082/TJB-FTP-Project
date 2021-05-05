@@ -487,6 +487,23 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
             // log data packet
             log("Client recieved -- Opcode 3 (DATA) Blk# (" + dataPkt.getBlockNo() + ") " + Arrays.toString(dataPkt.getData()));
          
+         // write data to file
+            try { 
+               out.write(dataPkt.getData(), 0, dataPkt.getLength());
+            }
+            catch (IOException ioe) {
+               ERRORPacket error = new ERRORPacket(iNet, dataPkt.getPort(), UNDEF, ioe.toString());
+               log("Client sending -- Opcode 5 (ERROR) Ecode 0 (UNDEF) <" + error.getErrorMsg() + ">");
+               DatagramPacket errorpkt = error.build();
+               try { 
+                  cSocket.send(errorpkt); 
+               } 
+               catch (Exception ex) {
+                  log("ERROR: Can't send error to server."); 
+               }
+               return;
+            }
+         
          // send ack packet with corresponding block #
          try { 
          ACKPacket ackDat = new ACKPacket(iNet, dataPkt.getPort(), dataPkt.getBlockNo()); 
@@ -535,11 +552,6 @@ public class Client extends Application implements EventHandler<ActionEvent> , T
    *  @param message - the message to log
    */
    public void log(String message) {
-      Platform.runLater(
-         new Runnable() {
-            public void run() {
-               taLog.appendText(message + "\n");
-            }
-         });
+      taLog.appendText(message + "\n");
    }
 }	
